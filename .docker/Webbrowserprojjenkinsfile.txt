@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+
+environment{
+    SCANNER_HOME=tool 'sonar-scanner'
+}
+    stages {
+        stage('Git Checkout') {
+            steps {
+               git branch: 'main', url: 'https://github.com/saad-react/Vitual-Browser.git'
+            }
+        }
+        
+        stage('Owasp-Dependency') {
+            steps {
+               dependencyCheck additionalArguments: ' --scan ./ --disableNodeAudit ', odcInstallation: 'DC'
+               dependencyCheckPublisher pattern: '**/dependency-check-report-xml'
+            }
+        }
+        
+        stage('Sonarqube-analysis') {
+            steps {
+               withSonarQubeEnv('sonar-server') {
+                   sh '''$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=VirtualBrowser  \
+                   -Dsonar.projectName=VirtualBrowser'''
+                   
+               }
+            }
+        }
+        
+        stage('DockerBuild') {
+            steps{
+            script {
+               withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                   dir('/home/ubuntu/.jenkins/workspace/virtual-browser/.docker/microsoft-edge') {
+                       sh " docker build -t 797272/vb:latest ."
+                   }
+                   
+                    }
+                }
+            }
+        }
+        
+        stage('Trivy Dockerscan') {
+            steps {
+              sh "trivy image 797272/vb:latest > trivy.txt"
+            }
+        }
+        
+        stage('Docker Push Image') {
+            steps{
+            script {
+               withDockerRegistry(credentialsId: 'docker-cred', toolName: 'Docker') {
+                   sh "docker push 797272/vb:latest"
+                   
+                    }
+                }
+            }
+        }
+        
+        stage('Docker compose to deploy') {
+            steps{
+            sh "docker-compose up -d"
+            }
+        }
+    }
+}
